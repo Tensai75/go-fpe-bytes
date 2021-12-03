@@ -27,9 +27,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/capitalone/fpe/fpeUtils"
 	"math"
 	"math/big"
+
+	"github.com/vdparikhrh/fpe/fpeUtils"
 )
 
 // Note that this is strictly following the official NIST spec guidelines. In the linked PDF Appendix A (README.md), NIST recommends that radix^minLength >= 1,000,000. If you would like to follow that, change this parameter.
