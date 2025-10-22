@@ -30,16 +30,16 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/vdparikhrh/fpe/fpeUtils"
+	"github.com/Tensai75/go-fpe-bytes/fpeUtils"
 )
 
-// Note that this is strictly following the official NIST spec guidelines. In the linked PDF Appendix A (README.md), NIST recommends that radix^minLength >= 1,000,000. If you would like to follow that, change this parameter.
+// Note that this is strictly following the official NIST spec guidelines. In the linked PDF Appendix A (README.md),
+// NIST recommends that radix^minLength >= 1,000,000. If you would like to follow that, change this parameter.
 const (
 	feistelMin    = 100
 	numRounds     = 10
 	blockSize     = aes.BlockSize
 	halfBlockSize = blockSize / 2
-	// maxRadix   = 65536 // 2^16
 )
 
 var (
@@ -64,7 +64,6 @@ type cbcMode interface {
 type Cipher struct {
 	tweak   []byte
 	codec   fpeUtils.Codec
-	radix   int
 	minLen  uint32
 	maxLen  uint32
 	maxTLen int
@@ -74,18 +73,21 @@ type Cipher struct {
 }
 
 const (
-	// from func (*big.Int)SetString
+	// legacy alphabet for backwards compatibility
 	legacyAlphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRTSUVWXYZ"
 )
 
 // NewCipher is provided for backwards compatibility for old client code.
 func NewCipher(radix int, maxTLen int, key []byte, tweak []byte) (Cipher, error) {
-	return NewCipherWithAlphabet(legacyAlphabet[:radix], maxTLen, key, tweak)
+	if radix > len(legacyAlphabet) {
+		return Cipher{}, fmt.Errorf("radix %d exceeds legacy alphabet length %d", radix, len(legacyAlphabet))
+	}
+	return NewCipherWithAlphabet([]byte(legacyAlphabet[:radix]), maxTLen, key, tweak)
 }
 
-// NewAlphaCipher initializes a new FF1 Cipher for encryption or decryption use
+// NewCipherWithAlphabet initializes a new FF1 Cipher for encryption or decryption use
 // based on the alphabet, max tweak length, key and tweak parameters.
-func NewCipherWithAlphabet(alphabet string, maxTLen int, key []byte, tweak []byte) (Cipher, error) {
+func NewCipherWithAlphabet(alphabet []byte, maxTLen int, key []byte, tweak []byte) (Cipher, error) {
 	var newCipher Cipher
 
 	keyLen := len(key)
@@ -102,9 +104,9 @@ func NewCipherWithAlphabet(alphabet string, maxTLen int, key []byte, tweak []byt
 
 	radix := codec.Radix()
 
-	// FF1 allows radices in [2, 2^16],
-	if (radix < 2) || (radix > 65536) {
-		return newCipher, fmt.Errorf("radix must be between 2 and 65536: %d supplied", radix)
+	// FF1 allows radices in [2, 256],
+	if (radix < 2) || (radix > 256) {
+		return newCipher, fmt.Errorf("radix must be between 2 and 256: %d supplied", radix)
 	}
 
 	// Make sure the length of given tweak is in range
@@ -117,8 +119,8 @@ func NewCipherWithAlphabet(alphabet string, maxTLen int, key []byte, tweak []byt
 
 	var maxLen uint32 = math.MaxUint32
 
-	// Make sure minLength <= maxLength < 2^32 is satisfied
-	if (maxLen < minLen) || (maxLen > math.MaxUint32) {
+	// Make sure minLength <= maxLength
+	if maxLen < minLen {
 		return newCipher, errors.New("minLen invalid, adjust your radix")
 	}
 
@@ -140,9 +142,9 @@ func NewCipherWithAlphabet(alphabet string, maxTLen int, key []byte, tweak []byt
 	return newCipher, nil
 }
 
-// Encrypt encrypts the string X over the current FF1 parameters
+// Encrypt encrypts the byte slice X over the current FF1 parameters
 // and returns the ciphertext of the same length and format
-func (c Cipher) Encrypt(X string) (string, error) {
+func (c Cipher) Encrypt(X []byte) ([]byte, error) {
 	return c.EncryptWithTweak(X, c.tweak)
 }
 
@@ -151,12 +153,11 @@ func (c Cipher) Encrypt(X string) (string, error) {
 // This allows you to re-use a single Cipher (for a given key) and simply
 // override the tweak for each unique data input, which is a practical
 // use-case of FPE for things like credit card numbers.
-func (c Cipher) EncryptWithTweak(X string, tweak []byte) (string, error) {
-	var ret string
+func (c Cipher) EncryptWithTweak(X []byte, tweak []byte) ([]byte, error) {
+	var ret []byte
 	var err error
 
-	// String X contains a sequence of characters, where some characters
-	// might take up multiple bytes. Convert into an array of indices into
+	// Byte slice X contains a sequence of bytes. Convert into an array of indices into
 	// the alphabet embedded in the codec.
 	Xn, err := c.codec.Encode(X)
 	if err != nil {
@@ -266,7 +267,7 @@ func (c Cipher) EncryptWithTweak(X string, tweak []byte) (string, error) {
 	Y := buf[lenQ+lenPQ-blockSize:]
 
 	// R starts at Y, requires blockSize bytes, which uses the last block of PQ
-	R := Y[:blockSize]
+	// R := Y[:blockSize]
 
 	// This will only be needed if maxJ > 1, for the inner for loop
 	// xored uses the blocks after R in Y, if any
@@ -316,7 +317,7 @@ func (c Cipher) EncryptWithTweak(X string, tweak []byte) (string, error) {
 		copy(PQ[blockSize:], Q)
 
 		// R is guaranteed to be of length 16
-		R, err = c.prf(PQ)
+		R, err := c.prf(PQ)
 		if err != nil {
 			return ret, err
 		}
@@ -365,9 +366,9 @@ func (c Cipher) EncryptWithTweak(X string, tweak []byte) (string, error) {
 	return fpeUtils.DecodeNum(&numA, len(A), &numB, len(B), c.codec)
 }
 
-// Decrypt decrypts the string X over the current FF1 parameters
+// Decrypt decrypts the byte slice X over the current FF1 parameters
 // and returns the plaintext of the same length and format
-func (c Cipher) Decrypt(X string) (string, error) {
+func (c Cipher) Decrypt(X []byte) ([]byte, error) {
 	return c.DecryptWithTweak(X, c.tweak)
 }
 
@@ -376,12 +377,11 @@ func (c Cipher) Decrypt(X string) (string, error) {
 // This allows you to re-use a single Cipher (for a given key) and simply
 // override the tweak for each unique data input, which is a practical
 // use-case of FPE for things like credit card numbers.
-func (c Cipher) DecryptWithTweak(X string, tweak []byte) (string, error) {
-	var ret string
+func (c Cipher) DecryptWithTweak(X []byte, tweak []byte) ([]byte, error) {
+	var ret []byte
 	var err error
 
-	// String X contains a sequence of characters, where some characters
-	// might take up multiple bytes. Convert into an array of indices into
+	// Byte slice X contains a sequence of bytes. Convert into an array of indices into
 	// the alphabet embedded in the codec.
 	Xn, err := c.codec.Encode(X)
 	if err != nil {
@@ -491,7 +491,7 @@ func (c Cipher) DecryptWithTweak(X string, tweak []byte) (string, error) {
 	Y := buf[lenQ+lenPQ-blockSize:]
 
 	// R starts at Y, requires blockSize bytes, which uses the last block of PQ
-	R := Y[:blockSize]
+	// R := Y[:blockSize]
 
 	// This will only be needed if maxJ > 1, for the inner for loop
 	// xored uses the blocks after R in Y, if any
@@ -541,7 +541,7 @@ func (c Cipher) DecryptWithTweak(X string, tweak []byte) (string, error) {
 		copy(PQ[blockSize:], Q)
 
 		// R is guaranteed to be of length 16
-		R, err = c.prf(PQ)
+		R, err := c.prf(PQ)
 		if err != nil {
 			return ret, err
 		}

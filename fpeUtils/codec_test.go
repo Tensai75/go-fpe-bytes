@@ -22,39 +22,37 @@ See the License for the specific language governing permissions and limitations 
 package fpeUtils
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 	"testing"
-	"unicode/utf8"
 )
 
 var testCodec = []struct {
-	alphabet string
+	alphabet []byte
 	radix    int
-	input    string
-	output   []uint16
+	input    []byte
+	output   []uint8
 	error    bool
 }{
 	{
-		"0123456789abcdefghijklmnopqrstuvwxyz ",
+		[]byte("0123456789abcdefghijklmnopqrstuvwxyz "),
 		37,
-		"hello world",
-		[]uint16{17, 14, 21, 21, 24, 36, 32, 24, 27, 21, 13},
+		[]byte("hello world"),
+		[]uint8{17, 14, 21, 21, 24, 36, 32, 24, 27, 21, 13},
 		false,
 	},
 	{
-		"hello world",
+		[]byte("hello world"),
 		8,
-		"hello world",
-		[]uint16{0, 1, 2, 2, 3, 4, 5, 3, 6, 2, 7},
+		[]byte("hello world"),
+		[]uint8{0, 1, 2, 2, 3, 4, 5, 3, 6, 2, 7},
 		false,
 	},
 	{
-		"hello world\u2318-",
-		10,
-		"\u2318 - hello world",
-		[]uint16{8, 4, 9, 4, 0, 1, 2, 2, 3, 4, 5, 3, 6, 2, 7},
+		[]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A},
+		11,
+		[]byte{0x00, 0x05, 0x0A, 0x03, 0x07},
+		[]uint8{0, 5, 10, 3, 7},
 		false,
 	},
 }
@@ -85,8 +83,8 @@ func TestCodec(t *testing.T) {
 				t.Fatalf("Unable to decode: %s", err)
 			}
 
-			if s != spec.input {
-				t.Fatalf("Decode error: got '%s' expected '%s'", s, spec.input)
+			if !reflect.DeepEqual(s, spec.input) {
+				t.Fatalf("Decode error: got %v expected %v", s, spec.input)
 			}
 		})
 	}
@@ -94,19 +92,19 @@ func TestCodec(t *testing.T) {
 
 func TestEncoder(t *testing.T) {
 	tests := []struct {
-		alphabet string
+		alphabet []byte
 		radix    int
-		input    string
+		input    []byte
 	}{
 		{
-			"",
+			[]byte{},
 			0,
-			"hello world",
+			[]byte("hello world"),
 		},
 		{
-			"helloworld",
+			[]byte("helloworld"),
 			7,
-			"hello world",
+			[]byte("hello world"),
 		},
 	}
 
@@ -122,42 +120,77 @@ func TestEncoder(t *testing.T) {
 
 			_, err = al.Encode(spec.input)
 			if err == nil {
-				t.Fatalf("Encode unexpectedly succeeded: input '%s', alphabet '%s'", spec.input, spec.alphabet)
+				t.Fatalf("Encode unexpectedly succeeded: input %v, alphabet %v", spec.input, spec.alphabet)
 			}
 		})
 	}
 }
 
 func TestLargeAlphabet(t *testing.T) {
-	var alphabet bytes.Buffer
-
-	nr := 0
-	for i := 0; i < 100000; i++ {
-		if utf8.ValidRune(rune(i)) {
-			s := string(rune(i))
-			nr++
-			alphabet.WriteString(s)
-			if nr == 65536 {
-				break
-			}
-		}
+	// Create alphabet with all 256 possible byte values
+	alphabet := make([]byte, 256)
+	for i := 0; i < 256; i++ {
+		alphabet[i] = byte(i)
 	}
 
-	al, err := NewCodec(alphabet.String())
+	al, err := NewCodec(alphabet)
 	if err != nil {
 		t.Fatalf("Error making codec: %s", err)
 	}
-	if al.Radix() != 65536 {
+	if al.Radix() != 256 {
 		t.Fatalf("Incorrect radix %d ", al.Radix())
 	}
 
-	nml, err := al.Encode("hello world")
+	// Test with some byte data
+	testData := []byte{0x00, 0x55, 0xAA, 0xFF, 0x10, 0x20}
+	nml, err := al.Encode(testData)
 	if err != nil {
 		t.Fatalf("Unable to encode: %s", err)
 	}
 
-	_, err = al.Decode(nml)
+	decoded, err := al.Decode(nml)
 	if err != nil {
 		t.Fatalf("Unable to decode: %s", err)
+	}
+
+	if !reflect.DeepEqual(decoded, testData) {
+		t.Fatalf("Round-trip failed: got %v expected %v", decoded, testData)
+	}
+}
+
+func TestAlphabetTooLarge(t *testing.T) {
+	// Create alphabet with duplicates, should still work since duplicates are ignored
+	alphabet := make([]byte, 300) // More than 256 bytes
+	for i := 0; i < 300; i++ {
+		alphabet[i] = byte(i % 256) // This creates duplicates
+	}
+
+	// This should work since duplicates are ignored
+	al, err := NewCodec(alphabet)
+	if err != nil {
+		t.Fatalf("Error making codec: %s", err)
+	}
+	if al.Radix() != 256 {
+		t.Fatalf("Incorrect radix %d - expected 256", al.Radix())
+	}
+}
+
+func TestMaxAlphabetExceeded(t *testing.T) {
+	// Create a scenario where we would exceed 256 unique bytes
+	// This isn't actually possible with byte slices since there are only 256 possible byte values
+	// But we can test that our implementation correctly handles the 255 position overflow
+
+	// Create alphabet with all unique bytes
+	alphabet := make([]byte, 256)
+	for i := 0; i < 256; i++ {
+		alphabet[i] = byte(i)
+	}
+
+	al, err := NewCodec(alphabet)
+	if err != nil {
+		t.Fatalf("Expected success, but got error: %s", err)
+	}
+	if al.Radix() != 256 {
+		t.Fatalf("Incorrect radix %d - expected 256", al.Radix())
 	}
 }

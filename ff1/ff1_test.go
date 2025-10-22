@@ -20,12 +20,11 @@ See the License for the specific language governing permissions and limitations 
 package ff1
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
-	"strings"
+	"math"
+	"reflect"
 	"testing"
-	"unicode/utf8"
 )
 
 // Test vectors taken from here: http://csrc.nist.gov/groups/ST/toolkit/documents/Examples/FF1samples.pdf
@@ -38,8 +37,8 @@ type testVector struct {
 	// Key and tweak are both hex-encoded strings
 	key        string
 	tweak      string
-	plaintext  string
-	ciphertext string
+	plaintext  []byte
+	ciphertext []byte
 }
 
 // Official NIST FF1 Test Vectors
@@ -49,22 +48,22 @@ var testVectors = []testVector{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3C",
 		"",
-		"0123456789",
-		"2433477484",
+		[]byte("0123456789"),
+		[]byte("2433477484"),
 	},
 	{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3C",
 		"39383736353433323130",
-		"0123456789",
-		"6124200773",
+		[]byte("0123456789"),
+		[]byte("6124200773"),
 	},
 	{
 		36,
 		"2B7E151628AED2A6ABF7158809CF4F3C",
 		"3737373770717273373737",
-		"0123456789abcdefghi",
-		"a9tv40mll9kdu509eum",
+		[]byte("0123456789abcdefghi"),
+		[]byte("a9tv40mll9kdu509eum"),
 	},
 
 	// AES-192
@@ -72,22 +71,22 @@ var testVectors = []testVector{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F",
 		"",
-		"0123456789",
-		"2830668132",
+		[]byte("0123456789"),
+		[]byte("2830668132"),
 	},
 	{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F",
 		"39383736353433323130",
-		"0123456789",
-		"2496655549",
+		[]byte("0123456789"),
+		[]byte("2496655549"),
 	},
 	{
 		36,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F",
 		"3737373770717273373737",
-		"0123456789abcdefghi",
-		"xbj3kv35jrawxv32ysr",
+		[]byte("0123456789abcdefghi"),
+		[]byte("xbj3kv35jrawxv32ysr"),
 	},
 
 	// AES-256
@@ -95,22 +94,22 @@ var testVectors = []testVector{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94",
 		"",
-		"0123456789",
-		"6657667009",
+		[]byte("0123456789"),
+		[]byte("6657667009"),
 	},
 	{
 		10,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94",
 		"39383736353433323130",
-		"0123456789",
-		"1001623463",
+		[]byte("0123456789"),
+		[]byte("1001623463"),
 	},
 	{
 		36,
 		"2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94",
 		"3737373770717273373737",
-		"0123456789abcdefghi",
-		"xs8a0azh2avyalyzuwd",
+		[]byte("0123456789abcdefghi"),
+		[]byte("xs8a0azh2avyalyzuwd"),
 	},
 }
 
@@ -139,8 +138,8 @@ func TestEncrypt(t *testing.T) {
 				t.Fatalf("%v", err)
 			}
 
-			if ciphertext != testVector.ciphertext {
-				t.Fatalf("\nSample%d\nradix:\t\t%d\nKey:\t\t%s\nTweak:\t\t%s\nPlaintext:\t%s\nCiphertext:\t%s\nExpected:\t%s", sampleNumber, testVector.radix, testVector.key, testVector.tweak, testVector.plaintext, ciphertext, testVector.ciphertext)
+			if !reflect.DeepEqual(ciphertext, testVector.ciphertext) {
+				t.Fatalf("\nSample%d\nradix:\t\t%d\nKey:\t\t%s\nTweak:\t\t%s\nPlaintext:\t%v\nCiphertext:\t%v\nExpected:\t%v", sampleNumber, testVector.radix, testVector.key, testVector.tweak, testVector.plaintext, ciphertext, testVector.ciphertext)
 			}
 		})
 	}
@@ -171,8 +170,8 @@ func TestDecrypt(t *testing.T) {
 				t.Fatalf("%v", err)
 			}
 
-			if plaintext != testVector.plaintext {
-				t.Fatalf("\nSample%d\nradix:\t\t%d\nKey:\t\t%s\nTweak:\t\t%s\nCiphertext:\t%s\nPlaintext:\t%s\nExpected:\t%s", sampleNumber, testVector.radix, testVector.key, testVector.tweak, testVector.ciphertext, plaintext, testVector.plaintext)
+			if !reflect.DeepEqual(plaintext, testVector.plaintext) {
+				t.Fatalf("\nSample%d\nradix:\t\t%d\nKey:\t\t%s\nTweak:\t\t%s\nCiphertext:\t%v\nPlaintext:\t%v\nExpected:\t%v", sampleNumber, testVector.radix, testVector.key, testVector.tweak, testVector.ciphertext, plaintext, testVector.plaintext)
 			}
 		})
 	}
@@ -180,9 +179,9 @@ func TestDecrypt(t *testing.T) {
 
 // These are for testing long inputs, which are not in the standard test vectors
 func TestLong(t *testing.T) {
-	key, err := hex.DecodeString("2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94")
+	key, _ := hex.DecodeString("2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94")
 
-	tweak, err := hex.DecodeString("")
+	tweak, _ := hex.DecodeString("")
 
 	// 16 is an arbitrary number for maxTlen
 	ff1, err := NewCipher(36, 16, key, tweak)
@@ -190,7 +189,7 @@ func TestLong(t *testing.T) {
 		t.Fatalf("Unable to create cipher: %v", err)
 	}
 
-	plaintext := "xs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyal"
+	plaintext := []byte("xs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyal")
 
 	ciphertext, err := ff1.Encrypt(plaintext)
 	if err != nil {
@@ -202,23 +201,23 @@ func TestLong(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	if plaintext != decrypted {
+	if !reflect.DeepEqual(plaintext, decrypted) {
 		t.Fatalf("Long Decrypt Failed. \n Expected: %v \n Got: %v \n", plaintext, decrypted)
 	}
 }
 
 // Regression test for issue 14: https://github.com/capitalone/fpe/issues/14
 func TestIssue14(t *testing.T) {
-	key, err := hex.DecodeString("EF4359D8D580AA4F7F036D6F04FC6A94")
+	key, _ := hex.DecodeString("EF4359D8D580AA4F7F036D6F04FC6A94")
 
-	tweak, err := hex.DecodeString("D8E7920AFA330A73")
+	tweak, _ := hex.DecodeString("D8E7920AFA330A73")
 
 	ff1, err := NewCipher(2, 8, key, tweak)
 	if err != nil {
 		t.Fatalf("Unable to create cipher: %v", err)
 	}
 
-	plaintext := "11111010"
+	plaintext := []byte("11111010")
 
 	ciphertext, err := ff1.Encrypt(plaintext)
 	if err != nil {
@@ -230,24 +229,25 @@ func TestIssue14(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	if plaintext != decrypted {
+	if !reflect.DeepEqual(plaintext, decrypted) {
 		t.Fatalf("Issue 14 Decrypt Failed. \n Expected: %v \n Got: %v \n", plaintext, decrypted)
 	}
 }
 
-// Alphabet can contain unicode characters
-func TestUnicode(t *testing.T) {
-	key, err := hex.DecodeString("EF4359D8D580AA4F7F036D6F04FC6A94")
+// Test with arbitrary byte values including high bytes
+func TestByteValues(t *testing.T) {
+	key, _ := hex.DecodeString("EF4359D8D580AA4F7F036D6F04FC6A94")
 
-	tweak, err := hex.DecodeString("D8E7920AFA330A73")
+	tweak, _ := hex.DecodeString("D8E7920AFA330A73")
 
-	// 0-9 plus a 1-byte, 2-byte, 3-byte and 4-byte utf-8 chars
-	ff1, err := NewCipherWithAlphabet("0123456789\u0024\u00A2\u0939\u10348", 8, key, tweak)
+	// Create alphabet with some binary values
+	alphabet := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
+	ff1, err := NewCipherWithAlphabet(alphabet, 8, key, tweak)
 	if err != nil {
 		t.Fatalf("Unable to create cipher: %v", err)
 	}
 
-	plaintext := "0123456789\u0024\u00A2\u0939\u10348"
+	plaintext := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 
 	ciphertext, err := ff1.Encrypt(plaintext)
 	if err != nil {
@@ -259,71 +259,54 @@ func TestUnicode(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 
-	if plaintext != decrypted {
-		t.Fatalf("TestUnicode Decrypt Failed. \n Expected: %v \n Got: %v \n", plaintext, decrypted)
+	if !reflect.DeepEqual(plaintext, decrypted) {
+		t.Fatalf("TestByteValues Decrypt Failed. \n Expected: %v \n Got: %v \n", plaintext, decrypted)
 	}
 }
 
 func TestAlphabetSizes(t *testing.T) {
-	// encryption deals with numeral values encoded in ceil(log(radix))-sized
-	// bit strings, up to 16 bits in length - the number of bits in a uint16.
-	// This test exercises behaviour for all bitstring lengths from 1 to 16.
-
+	// Test with different alphabet sizes from 2 to 256
 	key, _ := hex.DecodeString("EF4359D8D580AA4F7F036D6F04FC6A94")
-
 	tweak, _ := hex.DecodeString("D8E7920AFA330A73")
 
-	for s := uint(1); s < 17; s++ {
-		a, err := buildAlphabet(1 << s)
-		if err != nil {
-			t.Fatalf("TestAlphabetSizes: %s", err)
+	for s := 2; s <= 256; s *= 2 { // Test powers of 2: 2, 4, 8, 16, 32, 64, 128, 256
+		alphabet := make([]byte, s)
+		for i := 0; i < s; i++ {
+			alphabet[i] = byte(i)
 		}
 
-		ff1, err := NewCipherWithAlphabet(a, 8, key, tweak)
+		ff1, err := NewCipherWithAlphabet(alphabet, 8, key, tweak)
 		if err != nil {
-			t.Fatalf("Unable to create cipher: %v", err)
+			t.Fatalf("Unable to create cipher for alphabet size %d: %v", s, err)
 		}
 
-		plaintext := strings.Repeat(string(rune(0)), 10)
+		// Calculate minimum length based on the cipher's requirements
+		// For FF1, minimum length = ceil(log(100) / log(radix))
+		minLen := int(math.Ceil(math.Log(100) / math.Log(float64(s))))
+		testLen := minLen
+		if testLen < 10 {
+			testLen = 10
+		}
+
+		plaintext := make([]byte, testLen)
+		for i := 0; i < testLen; i++ {
+			plaintext[i] = alphabet[i%s]
+		}
+
 		ciphertext, err := ff1.Encrypt(plaintext)
 		if err != nil {
-			t.Fatalf("%v", err)
+			t.Fatalf("Encrypt failed for alphabet size %d: %v", s, err)
 		}
 
 		decrypted, err := ff1.Decrypt(ciphertext)
 		if err != nil {
-			t.Fatalf("%v", err)
+			t.Fatalf("Decrypt failed for alphabet size %d: %v", s, err)
 		}
 
-		if plaintext != decrypted {
-			t.Fatalf("TestUnicode Decrypt Failed. \n Expected: %v \n Got: %v \n", plaintext, decrypted)
-		}
-
-	}
-
-}
-
-func buildAlphabet(n int) (string, error) {
-	// Not every code-point can be encoded as utf-8 string.
-	// For example u+DC00 - u+DFFF contains "isolated surrogate code points"
-	// that have no string interpretation.
-	// (https://www.unicode.org/charts/PDF/UDC00.pdf)
-	//
-	// Loop through a large number of code points and collect
-	// up to n code points with valid interpretations.
-	var alphabet bytes.Buffer
-	nr := 0
-	for i := 0; i < 100000; i++ {
-		if utf8.ValidRune(rune(i)) {
-			s := string(rune(i))
-			nr++
-			alphabet.WriteString(s)
-			if nr == n {
-				return alphabet.String(), nil
-			}
+		if !reflect.DeepEqual(plaintext, decrypted) {
+			t.Fatalf("Round-trip failed for alphabet size %d. Expected: %v, Got: %v", s, plaintext, decrypted)
 		}
 	}
-	return alphabet.String(), fmt.Errorf("Failed to collect %d validrunes: only %d collected", n, nr)
 }
 
 // Note: panic(err) is just used for example purposes.
@@ -346,7 +329,7 @@ func ExampleCipher_Encrypt() {
 		panic(err)
 	}
 
-	original := "0123456789"
+	original := []byte("0123456789")
 
 	// Call the encryption function on an example test vector
 	ciphertext, err := FF1.Encrypt(original)
@@ -354,7 +337,7 @@ func ExampleCipher_Encrypt() {
 		panic(err)
 	}
 
-	fmt.Println(ciphertext)
+	fmt.Println(string(ciphertext))
 	// Output: 2433477484
 }
 
@@ -378,14 +361,15 @@ func ExampleCipher_Decrypt() {
 		panic(err)
 	}
 
-	ciphertext := "2433477484"
+	ciphertext := []byte("2433477484")
 
+	// Call the decryption function on an example test vector
 	plaintext, err := FF1.Decrypt(ciphertext)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(plaintext)
+	fmt.Println(string(plaintext))
 	// Output: 0123456789
 }
 
@@ -510,9 +494,9 @@ func BenchmarkE2ESample7(b *testing.B) {
 
 // BenchmarkEncryptLong is only for benchmarking the inner for loop code bath using a very large input to make d very large, making maxJ > 1
 func BenchmarkEncryptLong(b *testing.B) {
-	key, err := hex.DecodeString("2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94")
+	key, _ := hex.DecodeString("2B7E151628AED2A6ABF7158809CF4F3CEF4359D8D580AA4F7F036D6F04FC6A94")
 
-	tweak, err := hex.DecodeString("")
+	tweak, _ := hex.DecodeString("")
 
 	// 16 is an arbitrary number for maxTlen
 	ff1, err := NewCipher(36, 16, key, tweak)
@@ -523,6 +507,6 @@ func BenchmarkEncryptLong(b *testing.B) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		ff1.Encrypt("xs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwd")
+		ff1.Encrypt([]byte("xs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwdxs8a0azh2avyalyzuwd"))
 	}
 }

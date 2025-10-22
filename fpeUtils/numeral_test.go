@@ -33,17 +33,17 @@ func TestEncode(t *testing.T) {
 	testSpec := []struct {
 		radix   uint64
 		intv    *big.Int
-		numeral []uint16
+		numeral []uint8
 	}{
 		{
 			10,
 			big.NewInt(100),
-			[]uint16{1, 0, 0},
+			[]uint8{1, 0, 0},
 		},
 		{
-			65536,
-			big.NewInt(0).Exp(big.NewInt(65536), big.NewInt(7), nil),
-			[]uint16{1, 0, 0, 0, 0, 0, 0, 0},
+			256,
+			big.NewInt(0).Exp(big.NewInt(256), big.NewInt(7), nil),
+			[]uint8{1, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
@@ -57,7 +57,7 @@ func TestEncode(t *testing.T) {
 			if v.Cmp(spec.intv) != 0 {
 				t.Fatalf("expected %v got %v", spec.intv, &v)
 			}
-			r := make([]uint16, len(spec.numeral))
+			r := make([]uint8, len(spec.numeral))
 			Str(&v, r, spec.radix)
 			if !reflect.DeepEqual(spec.numeral, r) {
 				t.Fatalf("Encode numeral incorrect: %v", r)
@@ -72,17 +72,17 @@ func TestEncodeError(t *testing.T) {
 	testSpec := []struct {
 		radix   uint64
 		intv    *big.Int
-		numeral []uint16
+		numeral []uint8
 	}{
 		{
 			10,
 			big.NewInt(100),
-			[]uint16{10, 0, 0},
+			[]uint8{10, 0, 0},
 		},
 		{
-			65537,
-			big.NewInt(0).Exp(big.NewInt(65537), big.NewInt(7), nil),
-			[]uint16{1, 0, 0, 0, 0, 0, 0, 0},
+			257,
+			big.NewInt(0).Exp(big.NewInt(257), big.NewInt(7), nil),
+			[]uint8{1, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
@@ -102,24 +102,24 @@ func TestDecodeError(t *testing.T) {
 	testSpec := []struct {
 		radix   uint64
 		intv    *big.Int
-		numeral []uint16
+		numeral []uint8
 	}{
 		{
 			10,
 			big.NewInt(100),
-			[]uint16{1, 0, 0},
+			[]uint8{1, 0, 0},
 		},
 		{
-			65537,
-			big.NewInt(0).Exp(big.NewInt(65537), big.NewInt(7), nil),
-			[]uint16{1, 0, 0, 0, 0, 0, 0, 0},
+			257,
+			big.NewInt(0).Exp(big.NewInt(257), big.NewInt(7), nil),
+			[]uint8{1, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
 	for idx, spec := range testSpec {
 		sampleNumber := idx + 1
 		t.Run(fmt.Sprintf("Sample%d", sampleNumber), func(t *testing.T) {
-			r := make([]uint16, 2)
+			r := make([]uint8, 2)
 			_, err := Str(spec.intv, r, spec.radix)
 			if err == nil {
 				t.Fatalf("expected error in Str")
